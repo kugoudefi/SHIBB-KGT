@@ -1,3 +1,7 @@
+/**
+ *Submitted for verification at BscScan.com on 2022-08-18
+*/
+
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity 0.7.0;
 
@@ -251,7 +255,7 @@ library SafeMath {
 pragma solidity 0.7.0;
 
 struct BalanceMap{
-    mapping(address => mapping(address => BalanceInfo)) userBalanceMap;//资产余额
+    mapping(address => mapping(address => BalanceInfo)) userBalanceMap;
 }
 struct BalanceInfo{
     uint balance;
@@ -265,12 +269,10 @@ struct TransferOut{
     uint amount; //余额
     uint timeout; //转出时间
 }
-//分配奖励
 struct IncomeInfo{
     uint amount; //收益
     uint timecome; //分配时间
 }
-//全站分配奖励
 struct IncomeAllInfo{
     address addr;
     uint amount; //收益
@@ -279,8 +281,9 @@ struct IncomeAllInfo{
 contract kugoushibbdefi{
     using SafeMath for uint; 
     address owner;
-    uint addressNum;//地址计数器（只记录质押类型地址）
+    uint addressNum = 0;//地址计数器（只记录质押类型地址）
     mapping(uint => address) addressMap;//地址计数器（只记录质押类型地址）
+    mapping(address => uint) addressNumMap;//转币次数
     mapping(address=>mapping(address=>BalanceInfo)) userBalanceMap;
     event _transferIn(address userAddr,address token,uint amount); 
     event _transferOut(address userAddr,address token,uint amount);
@@ -299,7 +302,6 @@ contract kugoushibbdefi{
     uint aleryKgtBalance = 0;
     //总转入lp数量
     uint allShibbLpNum = 0;
-    //赋值权限
     constructor(address tokenOwnerAddress){
       owner = tokenOwnerAddress;
     }
@@ -321,7 +323,6 @@ contract kugoushibbdefi{
         assembly { size := extcodesize(addr) }
         return size > 0;
     }
-    //转入kgt做矿池
     function transferInkgt(uint _amount) external payable onlyOwner returns(bool){
         address _token = kgttokenaddress;
         require(isContract(msg.sender) == false,'address cannot be the contract address');
@@ -334,7 +335,6 @@ contract kugoushibbdefi{
         emit _transferInkgt(msg.sender,_amount);
         return true;
     }
-    //转出kgt池子
     function transferOutkgt(uint _amount) external payable onlyOwner returns(bool){
         address _token = kgttokenaddress;
         require(isContract(msg.sender) == false,'address cannot be the contract address');
@@ -347,7 +347,6 @@ contract kugoushibbdefi{
         emit _transferOutkgt(msg.sender,_amount);
         return true;
     }
-    //添加链上资产转入
     function transferIn(address _token,uint _amount) external payable returns(bool){
         require(isContract(msg.sender) == false,'address cannot be the contract address');
         require(_token!=address(0),'token invalid');
@@ -359,13 +358,15 @@ contract kugoushibbdefi{
         _balanceInfo.balance = _balanceInfo.balance.add(_amount);
         if(_token == shibbKgtAddress){
             allShibbLpNum = allShibbLpNum.add(_amount);
-            addressMap[addressNum] = msg.sender;
-            addressNum = addressNum.add(1);
+            if(addressNumMap[msg.sender] <= 0){
+                addressMap[addressNum] = msg.sender;
+                addressNum = addressNum.add(1);
+            } 
+           addressNumMap[msg.sender] = addressNumMap[msg.sender]+1;
         }
         emit _transferIn (msg.sender,_token,_amount);
         return true;
     }
-    //转出资产
     function transferOut(address _token,uint _amount) external payable returns(bool){
         require(isContract(msg.sender) == false,'address cannot be the contract address');
         require(_token!=address(0),'token invalid');
@@ -381,46 +382,35 @@ contract kugoushibbdefi{
         emit _transferOut(msg.sender,_token,_amount);
         return true;
     }
-    //查询托管合约资产余额
     function queryBalance(address _token) public view returns(uint){
         BalanceInfo storage _balanceInfo = userBalanceMap[msg.sender][_token];
         return (_balanceInfo.balance);
     }
-    //查询代理余额 
     function approveQuery(address _token,address _sender) public view returns(uint256 balance){
         balance = LibERC20.approveQuery(_token,_sender);
     }
-    //查询代币小数位
     function queryDecimals(address _token) internal view returns(uint256 decimals){
        decimals=LibERC20.queryDecimals(_token);
    }
-   //查询总池子余额
    function querykgtBalance() public view returns(uint balance){
       return allKgtBalance;
    }
-   //获取总转入lp（shibb-fil数量）
    function queryallLpNum() public view returns(uint balance){
       return allShibbLpNum;
    }
-   //每日分配收益
    function distributionIncome() public onlyOwner returns(bool){
        require(addressNum>0,'The number of addresses must be greater than 0');
        require(allKgtBalance>0,'The balance of the kgt income pool is insufficient!');
+        uint alllpBalance = LibBiswapPair.getTotalSupply(shibbKgtAddress);
+         (,uint reserve1) = LibBiswapPair.getReserves(shibbKgtAddress);
        for(uint i=0;i<addressNum;i++){
-            //获取lp余额
             uint lpbalance  = userBalanceMap[addressMap[i]][shibbKgtAddress].balance;
-            //获取lp总流通量
-            uint alllpBalance = LibBiswapPair.getTotalSupply(shibbKgtAddress);
             if(lpbalance > 0){
-                //计算lp对于kgt的数量
-                (,uint reserve1) = LibBiswapPair.getReserves(shibbKgtAddress);
                 uint kgtBalance =   lpbalance.mul(reserve1).mul(2).div(alllpBalance);
-                //收益年化率20%
                 kgtBalance = kgtBalance.div(5).div(365);
                 if(kgtBalance >0 && allKgtBalance>=kgtBalance){
                      BalanceInfo storage _balanceInfo = userBalanceMap[addressMap[i]][kgttokenaddress];
                      _balanceInfo.balance = _balanceInfo.balance.add(kgtBalance);
-                     //减少总池子
                      allKgtBalance = allKgtBalance.sub(kgtBalance);
                      aleryKgtBalance = aleryKgtBalance.add(kgtBalance);
                 }
